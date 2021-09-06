@@ -267,7 +267,8 @@ class Volume(AbstractFolder):
                 cnids[dirDirID] = f
                 childlist.append((ckrParID, ckrCName, f))
 
-                f.crdate, f.mddate, f.bkdate = dirCrDat, dirMdDat, dirBkDat
+                f.usrInfo, f.fndrInfo, f.crdate, f.mddate, f.bkdate = \
+                    dirUsrInfo, dirFndrInfo, dirCrDat, dirMdDat, dirBkDat
 
             elif datatype == 'file':
                 filFlags, filTyp, filUsrWds, filFlNum, \

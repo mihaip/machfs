@@ -297,7 +297,7 @@ class AbstractFolder(MutableMapping):
                         rdump = make_rez_code(parse_file(obj.rsrc), ascii_clean=True)
                         f.write(rdump)
                 else:
-                     _try_delete(rsrc_path)   
+                     _try_delete(rsrc_path)
 
                 # write an info dump iff either field is non-null
                 idump = obj.type + obj.creator
@@ -336,6 +336,8 @@ class Folder(AbstractFolder):
         self.x = 0 # where to put this spatially?
         self.y = 0
 
+        self.usrInfo = None
+        self.fndrInfo = None
         self.crdate = self.mddate = self.bkdate = 0
 
 
