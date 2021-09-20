@@ -552,8 +552,8 @@ class Volume(AbstractFolder):
                 dirVal = len(wrap.of)
                 dirDirID = wrap.cnid
                 dirCrDat, dirMdDat, dirBkDat = obj.crdate, obj.mddate, obj.bkdate
-                dirUsrInfo = bytes(16)
-                dirFndrInfo = bytes(16)
+                dirUsrInfo = obj.usrInfo or bytes(16)
+                dirFndrInfo = obj.fndrInfo or bytes(16)
                 mainrec_val = struct.pack('>BxHHLLLL16s16sxxxxxxxxxxxxxxxx',
                     cdrType, dirFlags, dirVal, dirDirID,
                     dirCrDat, dirMdDat, dirBkDat,
