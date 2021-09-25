@@ -1,7 +1,21 @@
+import enum
 import struct
 from macresources import Resource, make_file, parse_file
 from . import btree, bitmanip
 from .directory import AbstractFolder, Folder, File
+
+class FinderFlags(enum.IntEnum):
+    kIsOnDesk = 0x0001
+    kColor = 0x000e
+    kIsShared = 0x0040
+    kHasBeenInited = 0x0100
+    kHasCustomIcon = 0x0400
+    kIsStationery = 0x0800
+    kNameLocked = 0x1000
+    kHasBundle = 0x2000
+    kIsInvisible = 0x4000
+    kIsAlias = 0x8000
+
 
 
 def _catalog_rec_sort(b):
@@ -111,7 +125,7 @@ def _common_prefix(*tuples):
 def _link_aliases(vol_cr_date, cnid_dict): # vol creation date confirms within-volume alias
     for cnid, obj in cnid_dict.items():
         try:
-            if obj.flags & 0x8000:
+            if obj.flags & FinderFlags.kIsAlias:
                 alis_rsrc = next(r.data for r in parse_file(obj.rsrc) if r.type == b'alis')
 
                 # print(hex(obj.flags))
@@ -198,8 +212,10 @@ class Volume(AbstractFolder):
 
         self.crdate = self.mddate = self.bkdate = 0
         self.name = 'Untitled'
+        self.usrInfo = None
+        self.fndrInfo = None
 
-    def read(self, from_volume):
+    def read(self, from_volume, preserve_desktopdb=False):
         for i in range(0, len(from_volume), 512):
             if from_volume[i+1024:i+1024+2] == b'BD':
                 if i: from_volume = from_volume[i:]
@@ -267,8 +283,8 @@ class Volume(AbstractFolder):
                 cnids[dirDirID] = f
                 childlist.append((ckrParID, ckrCName, f))
 
-                f.usrInfo, f.fndrInfo, f.crdate, f.mddate, f.bkdate = \
-                    dirUsrInfo, dirFndrInfo, dirCrDat, dirMdDat, dirBkDat
+                f.flags, f.usrInfo, f.fndrInfo, f.crdate, f.mddate, f.bkdate = \
+                    dirFlags, dirUsrInfo, dirFndrInfo, dirCrDat, dirMdDat, dirBkDat
 
             elif datatype == 'file':
                 filFlags, filTyp, filUsrWds, filFlNum, \
@@ -284,7 +300,8 @@ class Volume(AbstractFolder):
                 childlist.append((ckrParID, ckrCName, f))
 
                 f.crdate, f.mddate, f.bkdate = filCrDat, filMdDat, filBkDat
-                f.type, f.creator, f.flags, f.x, f.y = struct.unpack_from('>4s4sHHH', filUsrWds)
+                f.type, f.creator, f.flags, f.x, f.y = struct.unpack_from('>4s4sHhh', filUsrWds)
+                f.fndrInfo = filFndrInfo
 
                 f.data = getfork(filLgLen, filExtRec, filFlNum, 'data')
                 f.rsrc = getfork(filRLgLen, filRExtRec, filFlNum, 'rsrc')
@@ -298,12 +315,19 @@ class Volume(AbstractFolder):
             if parent_cnid != 1:
                 parent_obj = cnids[parent_cnid]
                 parent_obj[child_name] = child_obj
+            else:
+                # This should be dir ID 2 with parent 1, which is information
+                # about the root folder in the volume, copy it up there.
+                self.name = child_name
+                self.usrInfo = child_obj.usrInfo
+                self.fndrInfo = child_obj.fndrInfo
 
         self.update(cnids[2])
 
-        self.pop('Desktop', None)
-        self.pop('Desktop DB', None)
-        self.pop('Desktop DF', None)
+        if not preserve_desktopdb:
+            self.pop('Desktop', None)
+            self.pop('Desktop DB', None)
+            self.pop('Desktop DF', None)
 
         _link_aliases(drCrDate, cnids)
 
@@ -372,18 +396,18 @@ class Volume(AbstractFolder):
             self._prefdict = dict(self._prefdict)
             f = File()
             f.type, f.creator = b'FNDR', b'ERIK'
-            f.flags = 0x4000 # invisible
+            f.flags = FinderFlags.kIsInvisible
             f.rsrc = make_file([Resource(b'STR ', 0, data=b'\x0AFinder 1.0')])
             self['Desktop'] = f
             if size >= 2*1024*1024:
                 f = File()
                 f.type, f.creator = b'BTFL', b'DMGR'
-                f.flags = 0x4000
+                f.flags = FinderFlags.kIsInvisible
                 f.data = btree.make_btree([], bthKeyLen=37, blksize=drAlBlkSiz)
                 self['Desktop DB'] = f
                 f = File()
                 f.type, f.creator = b'DTFL', b'DMGR'
-                f.flags = 0x4000
+                f.flags = FinderFlags.kIsInvisible
                 self['Desktop DF'] = f
 
         system_folder_cnid = 0
@@ -518,18 +542,31 @@ class Volume(AbstractFolder):
 
             mainrec_key = struct.pack('>L', path2wrap[path[:-1]].cnid) + pstrname
 
-            if isinstance(wrap.of, File):
+            if isinstance(obj, File):
                 drFilCnt += 1
 
                 cdrType = 2
                 filFlags = 1 << 1 # file thread record exists, but is not locked, nor "file record is used"
                 filTyp = 0
-                filUsrWds = struct.pack('>4s4sHHHxxxxxx', wrap.type, wrap.creator, obj.flags, obj.x, obj.y)
+                flags, x, y = obj.flags, obj.x, obj.y
+                # Clear the kHasBeenInited flag so that applications
+                # are registered (and thus their icons are set correctly
+                # based on BNDL resources).
+                if flags & FinderFlags.kHasBeenInited:
+                    flags &= ~FinderFlags.kHasBeenInited
+                    # If we clear kHasBeenInited then the location is
+                    # ignored unless we position it in a "magic rectangle"
+                    # (see https://web.archive.org/web/20080514070617/http://developer.apple.com/technotes/tb/tb_42.html)
+                    if x > 0 or y > 0:
+                       x -= 20000
+                       y -= 20000
+
+                filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, flags, x, y)
                 filFlNum = wrap.cnid
                 filStBlk, filLgLen, filPyLen = wrap.dfrk[0], len(wrap.data), bitmanip.pad_up(len(wrap.data), drAlBlkSiz)
                 filRStBlk, filRLgLen, filRPyLen = wrap.rfrk[0], len(wrap.rsrc), bitmanip.pad_up(len(wrap.rsrc), drAlBlkSiz)
                 filCrDat, filMdDat, filBkDat = obj.crdate, obj.mddate, obj.bkdate
-                filFndrInfo = bytes(16) # todo must fix
+                filFndrInfo = obj.fndrInfo or bytes(16)
                 filClpSize = 0 # todo must fix
                 filExtRec = struct.pack('>HHHHHH', *wrap.dfrk, 0, 0, 0, 0)
                 filRExtRec = struct.pack('>HHHHHH', *wrap.rfrk, 0, 0, 0, 0)
@@ -548,7 +585,7 @@ class Volume(AbstractFolder):
                 drDirCnt += 1
 
                 cdrType = 1
-                dirFlags = 0 # must fix
+                dirFlags = obj.flags # must fix
                 dirVal = len(wrap.of)
                 dirDirID = wrap.cnid
                 dirCrDat, dirMdDat, dirBkDat = obj.crdate, obj.mddate, obj.bkdate

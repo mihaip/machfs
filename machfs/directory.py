@@ -67,6 +67,7 @@ class AbstractFolder(MutableMapping):
     def __init__(self, from_dict=()):
         self._prefdict = {} # lowercase to preferred
         self._maindict = {} # lowercase to contents
+        self.flags = 0 # help me!
         self.update(from_dict)
 
     def __setitem__(self, key, value):
@@ -332,7 +333,6 @@ class Folder(AbstractFolder):
     def __init__(self):
         super().__init__()
 
-        self.flags = 0 # help me!
         self.x = 0 # where to put this spatially?
         self.y = 0
 
@@ -356,6 +356,7 @@ class File:
 
         self.rsrc = bytearray()
         self.data = bytearray()
+        self.fndrInfo = None
 
     def __str__(self):
         if isinstance(self.aliastarget, File):
