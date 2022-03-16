@@ -216,12 +216,21 @@ class Volume(AbstractFolder):
         self.fndrInfo = None
 
     def read(self, from_volume, preserve_desktopdb=False):
-        for i in range(0, len(from_volume), 512):
-            if from_volume[i+1024:i+1024+2] == b'BD':
-                if i: from_volume = from_volume[i:]
-                break
+        valid_volume = False
+        if len(from_volume) == 419284 or len(from_volume) == 838484:
+            # 400K/800K DiskCopy image, 84 byte header
+            from_volume = from_volume[84:]
+            valid_volume = True
         else:
-            raise ValueError('Magic number not found in image')
+            # 0..511 byte header
+            for i in range(0, len(from_volume), 512):
+                if from_volume[i+1024:i+1024+2] == b'BD':
+                    if i: from_volume = from_volume[i:]
+                    valid_volume = True
+                    break
+
+        if not valid_volume:
+            raise ValueError('Magic number not found in %d byte image' % (len(from_volume)))
 
         drSigWord, drCrDate, drLsMod, drAtrb, drNmFls, \
         drVBMSt, drAllocPtr, drNmAlBlks, drAlBlkSiz, drClpSiz, drAlBlSt, \
@@ -300,7 +309,7 @@ class Volume(AbstractFolder):
                 childlist.append((ckrParID, ckrCName, f))
 
                 f.crdate, f.mddate, f.bkdate = filCrDat, filMdDat, filBkDat
-                f.type, f.creator, f.flags, f.x, f.y = struct.unpack_from('>4s4sHhh', filUsrWds)
+                f.type, f.creator, f.flags, f.y, f.x = struct.unpack_from('>4s4sHhh', filUsrWds)
                 f.fndrInfo = filFndrInfo
 
                 f.data = getfork(filLgLen, filExtRec, filFlNum, 'data')
@@ -561,7 +570,7 @@ class Volume(AbstractFolder):
                        x -= 20000
                        y -= 20000
 
-                filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, flags, x, y)
+                filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, flags, y, x)
                 filFlNum = wrap.cnid
                 filStBlk, filLgLen, filPyLen = wrap.dfrk[0], len(wrap.data), bitmanip.pad_up(len(wrap.data), drAlBlkSiz)
                 filRStBlk, filRLgLen, filRPyLen = wrap.rfrk[0], len(wrap.rsrc), bitmanip.pad_up(len(wrap.rsrc), drAlBlkSiz)
