@@ -315,9 +315,9 @@ class Volume(AbstractFolder):
                 f.data = getfork(filLgLen, filExtRec, filFlNum, 'data')
                 f.rsrc = getfork(filRLgLen, filRExtRec, filFlNum, 'rsrc')
 
-            # elif datatype == 3:
+            # elif datatype == 'dthread':
             #     print('dir thread:', rec)
-            # elif datatype == 4:
+            # elif datatype == 'fthread':
             #     print('fil thread:', rec)
 
         for parent_cnid, child_name, child_obj in childlist:
@@ -608,11 +608,15 @@ class Volume(AbstractFolder):
 
             catalog.append((mainrec_key, mainrec_val))
 
-            thdrec_key = struct.pack('>Lx', wrap.cnid)
-            thdrec_val_type = 4 if isinstance(wrap.of, File) else 3
-            thdrec_val = struct.pack('>BxxxxxxxxxL', thdrec_val_type, path2wrap[path[:-1]].cnid) + pstrname
+            # File thread records appear to be buggy, but including them is not
+            # actually required.
+            if not isinstance(wrap.of, File):
+                # The root directory appears to have an extra reserved byte in its key
+                thdrec_key = struct.pack('>Lxx' if wrap.cnid == 2 else '>Lx', wrap.cnid)
+                thdrec_val_type = 4 if isinstance(wrap.of, File) else 3
+                thdrec_val = struct.pack('>BxxxxxxxxxL', thdrec_val_type, path2wrap[path[:-1]].cnid) + pstrname.ljust(31, b"\x00")
 
-            catalog.append((thdrec_key, thdrec_val))
+                catalog.append((thdrec_key, thdrec_val))
 
 
         # now it is time to sort these records! fuck that shit...

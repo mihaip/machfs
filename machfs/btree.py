@@ -80,8 +80,14 @@ def _make_index_record(rec, pointer):
     return rec
 
 
+def _get_index_record_pointer(rec):
+	return struct.unpack('>L', rec[-4:])[0]
+
+
 def dump_btree(buf):
     """Walk an HFS B*-tree, returning an iterator of (key, value) tuples."""
+
+    # debug_btree(buf)
 
     # Get the header node
     ndFLink, ndBLink, ndType, ndNHeight, (header_rec, unused_rec, map_rec) = _unpack_btree_node(buf, 0)
@@ -102,6 +108,34 @@ def dump_btree(buf):
             break
         this_leaf = ndFLink
 
+
+def debug_btree(buf):
+
+    ndFLink, ndBLink, ndType, ndNHeight, (header_rec, unused_rec, map_rec) = _unpack_btree_node(buf, 0)
+    print("Header node: ndFLink=%d, ndBLink=%d, ndType=%d" % (ndFLink, ndBLink, ndType))
+
+    bthDepth, bthRoot, bthNRecs, bthFNode, bthLNode, bthNodeSize, bthKeyLen, bthNNodes, bthFree = \
+    struct.unpack_from('>HLLLLHHLL', header_rec)
+    print("Header data: bthDepth=%d, bthRoot=%d, bthNRecs=%d, bthFNode=%d, bthLNode=%d, bthNodeSize=%d" % (bthDepth, bthRoot, bthNRecs, bthFNode, bthLNode, bthNodeSize))
+    
+    print("Index nodes")
+    def dump_index_node(node_num):
+        ndFLink, ndBLink, ndType, ndNHeight, records = _unpack_btree_node(buf, 512*node_num)
+        if ndType != 0:
+            return
+        children = [_get_index_record_pointer(r) for r in records]
+        print("  %d: ndFLink: %d, ndBLink: %d, ndType: %d, records: %s" % (node_num, ndFLink, ndBLink, ndType, children))
+        for c in children:
+            dump_index_node(c)
+
+    dump_index_node(bthRoot)
+
+    print("Leaf nodes")
+    this_leaf = bthFNode
+    while this_leaf != bthLNode:
+        ndFLink, ndBLink, ndType, ndNHeight, records = _unpack_btree_node(buf, 512*this_leaf)
+        print("  %d: ndFLink: %d, ndBLink: %d, ndType: %d" % (this_leaf, ndFLink, ndBLink, ndType))
+        this_leaf = ndFLink
 
 def make_btree(records, bthKeyLen, blksize):
     nodemult = blksize // 512
@@ -146,13 +180,22 @@ def make_btree(records, bthKeyLen, blksize):
 
         # each element of groups will become a record:
         # it is currently a list of node indices to point to
+        newnodes = []
         for g in groups:
             newnode = _Node(ndType=0, ndNHeight=bthDepth)
             for pointer in g:
                 rec = nodelist[pointer].records[0]
                 rec = _make_index_record(rec, pointer)
                 newnode.records.append(rec)
+            newnodes.append((len(nodelist), newnode))
             nodelist.append(newnode)
+        # Assign back/forward links for all the nodes in the level of the tree that we
+        # just created.
+        for i, (_, node) in enumerate(newnodes):
+            if i > 0:
+                node.ndBLink = newnodes[i-1][0]
+            if i < len(newnodes)-1:
+                node.ndFLink = newnodes[i+1][0]
 
     # Header node already has a 256-bit bitmap record (2048-bit)
     # Add map nodes with 3952-bit bitmap recs to cover every node
@@ -174,12 +217,16 @@ def make_btree(records, bthKeyLen, blksize):
     # Run back and forth to join up one linked list for each type
     most_recent = {}
     for i, node in enumerate(nodelist):
-        node.ndBLink = most_recent.get(node.ndType, 0)
+    	# Index node links were assigned above
+        if node.ndType != 0:
+            node.ndBLink = most_recent.get(node.ndType, 0)
         most_recent[node.ndType] = i
     bthLNode = most_recent.get(0xFF, 0)
     most_recent = {}
     for i, node in reversed(list(enumerate(nodelist))):
-        node.ndFLink = most_recent.get(node.ndType, 0)
+    	# Index node links were assigned above
+        if node.ndType != 0:
+            node.ndFLink = most_recent.get(node.ndType, 0)
         most_recent[node.ndType] = i
     bthFNode = most_recent.get(0xFF, 0)
 
