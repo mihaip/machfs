@@ -557,20 +557,7 @@ class Volume(AbstractFolder):
                 cdrType = 2
                 filFlags = 1 << 1 # file thread record exists, but is not locked, nor "file record is used"
                 filTyp = 0
-                flags, x, y = obj.flags, obj.x, obj.y
-                # Clear the kHasBeenInited flag so that applications
-                # are registered (and thus their icons are set correctly
-                # based on BNDL resources).
-                if flags & FinderFlags.kHasBeenInited:
-                    flags &= ~FinderFlags.kHasBeenInited
-                    # If we clear kHasBeenInited then the location is
-                    # ignored unless we position it in a "magic rectangle"
-                    # (see https://web.archive.org/web/20080514070617/http://developer.apple.com/technotes/tb/tb_42.html)
-                    if x > 0 or y > 0:
-                       x -= 20000
-                       y -= 20000
-
-                filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, flags, y, x)
+                filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, obj.flags, obj.y, obj.x)
                 filFlNum = wrap.cnid
                 filStBlk, filLgLen, filPyLen = wrap.dfrk[0], len(wrap.data), bitmanip.pad_up(len(wrap.data), drAlBlkSiz)
                 filRStBlk, filRLgLen, filRPyLen = wrap.rfrk[0], len(wrap.rsrc), bitmanip.pad_up(len(wrap.rsrc), drAlBlkSiz)
