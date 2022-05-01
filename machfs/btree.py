@@ -201,12 +201,15 @@ def make_btree(records, bthKeyLen, blksize):
     # Add map nodes with 3952-bit bitmap recs to cover every node
     bits_covered = 2048
     mapnodes = []
+    first_mapnode_index = None
     while bits_covered < bitmanip.pad_up(len(nodelist), nodemult):
         mapnode = _Node(ndType=2, ndNHeight=1)
         nodelist.append(mapnode)
         mapnodes.append(mapnode)
         mapnode.records = [bytes(3952//8)]
         bits_covered += len(mapnode.records[0]) * 8
+        if len(mapnodes) == 1:
+            first_mapnode_index = len(nodelist) - 1
 
     # Populate the bitmap (1 = used)
     headnode.records[2] = bitmanip.bits(2048, len(nodelist))
@@ -238,6 +241,11 @@ def make_btree(records, bthKeyLen, blksize):
     headnode.records[0] = struct.pack('>HLLLLHHLL76x',
         bthDepth, bthRoot, bthNRecs, bthFNode, bthLNode,
         bthNodeSize, bthKeyLen, bthNNodes, bthFree)
+
+    # If we need map nodes (because there are too many nodes for the bitmap in
+    # the header node), we need to point to them from the header node.
+    if first_mapnode_index is not None:
+        headnode.ndFLink = first_mapnode_index
 
     nodelist.append(512 * bthFree)
 
