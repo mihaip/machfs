@@ -327,7 +327,7 @@ class Volume(AbstractFolder):
             else:
                 # This should be dir ID 2 with parent 1, which is information
                 # about the root folder in the volume, copy it up there.
-                self.name = child_name
+                self.name = child_name.decode('mac_roman')
                 self.usrInfo = child_obj.usrInfo
                 self.fndrInfo = child_obj.fndrInfo
 
