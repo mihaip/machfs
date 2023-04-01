@@ -217,7 +217,7 @@ class Volume(AbstractFolder):
 
     def read(self, from_volume, preserve_desktopdb=False):
         valid_volume = False
-        if len(from_volume) == 419284 or len(from_volume) == 838484:
+        if len(from_volume) in [419284, 819284, 838484]:
             # 400K/800K DiskCopy image, 84 byte header
             from_volume = from_volume[84:]
             valid_volume = True
