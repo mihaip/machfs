@@ -555,12 +555,16 @@ class Volume(AbstractFolder):
                 drFilCnt += 1
 
                 cdrType = 2
-                filFlags = 1 << 1 # file thread record exists, but is not locked, nor "file record is used"
+                # File thread records are optional on HFS volumes. We do not
+                # emit them below, so leave kHFSThreadExistsMask clear.
+                filFlags = 0
                 filTyp = 0
                 filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, obj.flags, obj.y, obj.x)
                 filFlNum = wrap.cnid
-                filStBlk, filLgLen, filPyLen = wrap.dfrk[0], len(wrap.data), bitmanip.pad_up(len(wrap.data), drAlBlkSiz)
-                filRStBlk, filRLgLen, filRPyLen = wrap.rfrk[0], len(wrap.rsrc), bitmanip.pad_up(len(wrap.rsrc), drAlBlkSiz)
+                # The start-block fields are obsolete and reserved; actual
+                # fork locations are stored in filExtRec and filRExtRec.
+                filStBlk, filLgLen, filPyLen = 0, len(wrap.data), bitmanip.pad_up(len(wrap.data), drAlBlkSiz)
+                filRStBlk, filRLgLen, filRPyLen = 0, len(wrap.rsrc), bitmanip.pad_up(len(wrap.rsrc), drAlBlkSiz)
                 filCrDat, filMdDat, filBkDat = obj.crdate, obj.mddate, obj.bkdate
                 filFndrInfo = obj.fndrInfo or bytes(16)
                 filClpSize = 0 # todo must fix
