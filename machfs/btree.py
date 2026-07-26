@@ -203,7 +203,7 @@ def make_btree(records, bthKeyLen, blksize):
     mapnodes = []
     first_mapnode_index = None
     while bits_covered < bitmanip.pad_up(len(nodelist), nodemult):
-        mapnode = _Node(ndType=2, ndNHeight=1)
+        mapnode = _Node(ndType=2, ndNHeight=0)
         nodelist.append(mapnode)
         mapnodes.append(mapnode)
         mapnode.records = [bytes(3952//8)]
