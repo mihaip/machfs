@@ -214,6 +214,7 @@ class Volume(AbstractFolder):
         self.name = 'Untitled'
         self.usrInfo = None
         self.fndrInfo = None
+        self.open_folder = None
 
     def read(self, from_volume, preserve_desktopdb=False):
         valid_volume = False
@@ -332,6 +333,13 @@ class Volume(AbstractFolder):
                 self.fndrInfo = child_obj.fndrInfo
 
         self.update(cnids[2])
+
+        open_folder_cnid = struct.unpack_from('>L', drFndrInfo, 8)[0]
+        if open_folder_cnid == 2:
+            self.open_folder = self
+        else:
+            open_folder = cnids.get(open_folder_cnid)
+            self.open_folder = open_folder if isinstance(open_folder, AbstractFolder) else None
 
         if not preserve_desktopdb:
             self.pop('Desktop', None)
@@ -644,7 +652,24 @@ class Volume(AbstractFolder):
         drVCSize = drVBMCSize = drCtlCSize = 0
         drVolBkUp = 0                  # date and time of last backup
         drVSeqNum = 0                  # volume backup sequence number
-        drFndrInfo = struct.pack('>LLL28x', system_folder_cnid, startapp_folder_cnid, startapp_folder_cnid)
+
+        if self.open_folder is None:
+            open_folder_cnid = 0
+        else:
+            try:
+                open_folder_cnid = next(
+                    wrap.cnid for wrap in path2wrap.values()
+                    if wrap.of is self.open_folder and isinstance(wrap.of, AbstractFolder)
+                )
+            except StopIteration:
+                raise ValueError('open_folder must be a folder in this volume')
+
+        drFndrInfo = struct.pack(
+            '>LLL20x',
+            system_folder_cnid,
+            startapp_folder_cnid,
+            open_folder_cnid,
+        )
 
         vib = struct.pack('>2sLLHHHHHLLHLH28pLHLLLHLL32sHHHLHHxxxxxxxxLHHxxxxxxxx',
             drSigWord, drCrDate, drLsMod, drAtrb, drNmFls,

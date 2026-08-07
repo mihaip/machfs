@@ -25,6 +25,9 @@ v['Folder']['File'].rsrc = b'' # Use the macresources library to work with resou
 v['Folder']['File'].type = b'TEXT'
 v['Folder']['File'].creator = b'ttxt' # Teach Text/SimpleText
 
+# Ask the Finder to open the volume's root window when it is mounted.
+v.open_folder = v
+
 with open('FloppyImage.dsk', 'wb') as f:
     flat = v.write(
         size=1440*1024, # "High Density" floppy

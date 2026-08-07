@@ -1,5 +1,7 @@
 from machfs import *
+from machfs import bitmanip, btree
 import os
+import struct
 import time
 
 def test_upperlower():
@@ -23,6 +25,124 @@ def test_roundtrip():
     assert copies[0] == copies[1]
     assert copies[1] == copies[2]
     assert f.data in copies[-1]
+
+
+def test_open_folder():
+    h = Volume()
+    h.name = 'OpenFolderTest'
+    h['folder'] = Folder()
+
+    for open_folder, expected_cnid in [
+        (None, 0),
+        (h, 2),
+        (h['folder'], 16),
+    ]:
+        h.open_folder = open_folder
+        image = h.write(
+            10 * 1024 * 1024,
+            desktopdb=False,
+            bootable=False,
+        )
+
+        mdb = struct.unpack_from(
+            '>2sLLHHHHHLLHLH28pLHLLLHLL32sHHHL12sL12s', image, 1024
+        )
+        assert struct.unpack('>8L', mdb[22])[2] == expected_cnid
+
+        copy = Volume()
+        copy.read(image)
+        if open_folder is None:
+            assert copy.open_folder is None
+        elif open_folder is h:
+            assert copy.open_folder is copy
+        else:
+            assert copy.open_folder is copy['folder']
+
+    h['folder']['app'] = File()
+    h.open_folder = None
+    image = h.write(
+        10 * 1024 * 1024,
+        desktopdb=False,
+        bootable=False,
+        startapp=('folder', 'app'),
+    )
+    mdb = struct.unpack_from(
+        '>2sLLHHHHHLLHLH28pLHLLLHLL32sHHHL12sL12s', image, 1024
+    )
+    finder_info = struct.unpack('>8L', mdb[22])
+    assert finder_info[1] == 16
+    assert finder_info[2] == 0
+
+
+def test_file_catalog_reserved_fields():
+    h = Volume()
+    h.name = 'CatalogFieldsTest'
+    f = File()
+    f.data = b'data fork'
+    f.rsrc = b'resource fork'
+    h['file'] = f
+
+    image = h.write(
+        10 * 1024 * 1024,
+        desktopdb=False,
+        bootable=False,
+    )
+
+    mdb = struct.unpack_from(
+        '>2sLLHHHHHLLHLH28pLHLLLHLL32sHHHL12sL12s', image, 1024
+    )
+    allocation_block_size = mdb[8]
+    allocation_block_start = mdb[10]
+    catalog_size = mdb[-2]
+    catalog_extents = btree.unpack_extent_record(mdb[-1])
+    catalog = b''.join(
+        image[
+            512 * allocation_block_start + first_block * allocation_block_size:
+            512 * allocation_block_start + (first_block + block_count) * allocation_block_size
+        ]
+        for first_block, block_count in catalog_extents
+    )[:catalog_size]
+
+    file_record = None
+    for record in btree.dump_btree(catalog):
+        key_length = record[0]
+        value = record[bitmanip.pad_up(1 + key_length, 2):]
+        if value[0] == 2:
+            file_record = struct.unpack(
+                '>BxBB16sLHLLHLLLLL16sH12s12sL', value
+            )
+            break
+
+    assert file_record is not None
+    assert file_record[1] & 0x02 == 0  # kHFSThreadExistsMask
+    assert file_record[5] == 0  # dataStartBlock (reserved)
+    assert file_record[8] == 0  # rsrcStartBlock (reserved)
+    assert file_record[18] == 0  # reserved
+    assert btree.unpack_extent_record(file_record[16])
+    assert btree.unpack_extent_record(file_record[17])
+
+
+def test_map_node_heights():
+    # Force enough leaf nodes to require more bitmap space than the header
+    # node provides, and enough total nodes to require multiple map nodes.
+    records = [(i.to_bytes(4, 'big'), bytes(470)) for i in range(6000)]
+    tree = btree.make_btree(records, bthKeyLen=37, blksize=512)
+
+    first_map_node, _, _, _, _ = btree._unpack_btree_node(tree, 0)
+    assert first_map_node != 0
+
+    map_node_count = 0
+    map_node = first_map_node
+    while map_node:
+        map_node, _, node_type, node_height, _ = btree._unpack_btree_node(
+            tree, 512 * map_node
+        )
+        assert node_type == 2
+        assert node_height == 0
+        map_node_count += 1
+
+    assert map_node_count > 1
+
 
 def test_macos_mount():
     h = Volume()
