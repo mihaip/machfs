@@ -1,5 +1,7 @@
 from machfs import *
 from machfs import bitmanip, btree
+from machfs.main import FinderFlags
+from macresources import Resource, make_file, parse_file
 import os
 import struct
 import time
@@ -25,6 +27,38 @@ def test_roundtrip():
     assert copies[0] == copies[1]
     assert copies[1] == copies[2]
     assert f.data in copies[-1]
+
+
+def test_alias_keeps_what_belongs_to_the_file():
+    h = Volume()
+    h.name = 'AliasTest'
+
+    target = File()
+    target.type, target.creator = b'APPC', b'wnkl'
+    target.data = b'target data'
+    h['target'] = target
+
+    # Neither 'fact' nor the 'vers' resource can be derived from the target.
+    vers = Resource(b'vers', 2, data=b'\x01\x00\x80\x00\x00\x00\x041.0')
+    stale = Resource(b'alis', 0, name='alias resource name', data=bytes(150))
+    alias = File()
+    alias.flags |= FinderFlags.kIsAlias
+    alias.type, alias.creator = b'fact', b'MACS'
+    alias.rsrc = make_file([stale, vers])
+    alias.aliastarget = target
+    h['the alias'] = alias
+
+    copy = Volume()
+    copy.read(h.write(10*1024*1024, desktopdb=False, bootable=False))
+    got = copy['the alias']
+
+    assert (got.type, got.creator) == (b'fact', b'MACS')
+
+    resources = {(r.type, r.id): r for r in parse_file(got.rsrc)}
+    assert resources[b'vers', 2].data == vers.data
+    assert resources[b'alis', 0].name == 'alias resource name'
+    # The record itself holds this volume's CNIDs, so it is rebuilt.
+    assert resources[b'alis', 0].data != stale.data
 
 
 def test_open_folder():
