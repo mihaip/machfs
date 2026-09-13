@@ -474,23 +474,26 @@ class Volume(AbstractFolder):
                 aliastarget = (self.name,) + aliastarget # match the convention for this function
                 targetobj = path2wrap[aliastarget].of # probe the target to set some metadata
 
-                if isinstance(targetobj, Folder):
-                    wrap.creator = b'MACS'
-                    wrap.type = b'fdrp'
+                # An alias read from a volume carries the type and creator the
+                # Finder gave it, which the guesses below do not reproduce:
+                # 'fact' for Control Panels, 'faet' for Automated Tasks. So
+                # only guess for an alias built here, which has neither.
+                if obj.type == b'????' and obj.creator == b'????':
+                    if isinstance(targetobj, Folder):
+                        wrap.creator = b'MACS'
+                        wrap.type = b'fdrp'
 
-                elif isinstance(targetobj, Volume):
-                    wrap.creator = b'MACS'
-                    wrap.type = b'hdsk' if size > 1440*1024 else b'flpy'
+                    elif isinstance(targetobj, Volume):
+                        wrap.creator = b'MACS'
+                        wrap.type = b'hdsk' if size > 1440*1024 else b'flpy'
 
-                elif isinstance(targetobj, File):
-                    wrap.creator = targetobj.creator
+                    elif isinstance(targetobj, File):
+                        wrap.creator = targetobj.creator
 
-                    if targetobj.type == b'APPL':
-                        wrap.type = b'adrp'
-                    else:
-                        wrap.type = targetobj.type
-
-                wrap.data = b''
+                        if targetobj.type == b'APPL':
+                            wrap.type = b'adrp'
+                        else:
+                            wrap.type = targetobj.type
 
                 userType = b''
                 aliasSize = 9999 # fill this short at offset 4
@@ -514,7 +517,19 @@ class Volume(AbstractFolder):
                 # Stress test: find file by name, not CNID
                 # fileNum = 0
 
-                alis = Resource(b'alis', 0, name=path[-1])
+                # The record below holds CNIDs, so it has to be rebuilt for this
+                # volume. The rest of the fork belongs to the file: Control
+                # Panels keeps its 'vers', and the 'alis' keeps its own name.
+                resources = list(parse_file(obj.rsrc)) if obj.rsrc else []
+                alisIndex = next((i for i, r in enumerate(resources)
+                    if (r.type, r.id) == (b'alis', 0)), None)
+
+                if alisIndex is None:
+                    alis = Resource(b'alis', 0, name=path[-1])
+                else:
+                    oldalis = resources[alisIndex]
+                    alis = Resource(b'alis', 0, name=oldalis.name)
+                    alis.attribs = oldalis.attribs
                 alis.data[:] = struct.pack('>4s H hh 28p L 2s hL 64p LL 4s4s HHLh',
                     userType, aliasSize, aliasVersion, \
                     thisAliasKind, volumeName, volumeCrDate, \
@@ -531,7 +546,11 @@ class Volume(AbstractFolder):
 
                 # open('/tmp/creating','wb').write(alis.data)
 
-                wrap.rsrc = make_file([alis])
+                if alisIndex is None:
+                    resources.append(alis)
+                else:
+                    resources[alisIndex] = alis
+                wrap.rsrc = make_file(resources)
 
             if isinstance(obj, File):
                 wrap.dfrk = wrap.rfrk = (0, 0)
