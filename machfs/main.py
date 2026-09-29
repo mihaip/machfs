@@ -116,7 +116,7 @@ def _link_aliases(vol_cr_date, cnid_dict): # vol creation date confirms within-v
 
                 obj.aliastarget = cnid_dict[fileNum]
 
-        except (AttributeError, KeyError, StopIteration, ValueError):
+        except (AttributeError, KeyError, StopIteration, ValueError, struct.error):
             pass
 
 

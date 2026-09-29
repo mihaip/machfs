@@ -262,6 +262,14 @@ class BootAndAliasTests(unittest.TestCase):
         self.assertEqual(resources[b'TEXT',42],b'companion resource')
         self.assertIn((b'alis',0),resources)
 
+    def test_short_alias_resource_is_opaque(self):
+        from macresources import Resource,make_file
+        v=Volume();v['file']=f=File();f.flags=0x8000
+        f.rsrc=make_file([Resource(b'alis',0,data=b'short')])
+        copy=Volume();copy.read(image(v))
+        self.assertEqual(copy['file'].rsrc,f.rsrc)
+        self.assertIsNone(copy['file'].aliastarget)
+
     def test_alias_targets_and_cycles(self):
         v=Volume();v['folder']=Folder();v['folder']['file']=File()
         for name,target in [('root',v),('folder alias',v['folder']),('file alias',v['folder','file'])]:
