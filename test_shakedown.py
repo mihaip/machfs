@@ -23,6 +23,15 @@ def catalog_records(data):
 
 
 class ShakedownTests(unittest.TestCase):
+    def test_allocation_block_boundary(self):
+        self.assertEqual(_suggest_allocblk_size(32*1024*1024-512,512),512)
+        self.assertEqual(_suggest_allocblk_size(32*1024*1024,512),1024)
+        for align in (512,1024,2048,4096):
+            for size in (400*1024,32*1024*1024,2**32-512,2**32):
+                block = _suggest_allocblk_size(size,align)
+                self.assertEqual(block % align,0)
+                self.assertLessEqual(size//block,65535)
+
     def test_hfs_name_equivalence(self):
         v = Volume()
         v['a b'] = File()
@@ -129,6 +138,20 @@ class StructureTests(unittest.TestCase):
             for block in (512,4096,32768):
                 tree=btree.make_btree([(i.to_bytes(4,'big'),bytes(470)) for i in range(count)],37,block)
                 validate_tree(tree)
+
+    def test_sparse_geometry(self):
+        for align in (512,2048,4096):
+            for size in (400*1024,800*1024,2**25-512,2**25,2**25+512,
+                         2**26-512,2**26,2**31-512,2**31,2**32-512,2**32):
+                left,hole,right=Volume().write(size,align=align,desktopdb=False,sparse=True)
+                self.assertEqual(len(left)+hole+len(right),size)
+                self.assertGreaterEqual(hole,0)
+                count,block=struct.unpack_from('>HL',left,1042)
+                start=struct.unpack_from('>H',left,1052)[0]*512
+                self.assertEqual(block%align,0);self.assertEqual(start%align,0)
+                self.assertLessEqual(start+count*block,size-1024)
+                self.assertLessEqual(size//block,65535)
+                self.assertEqual(left[1024:1536],right[:512])
 
 
 if __name__ == '__main__':

@@ -26,9 +26,12 @@ def _catalog_rec_sort(b):
 
 
 def _suggest_allocblk_size(volsize, minalign):
-    min_nonalloc_blks = 6 # just for this estimation
+    # Apple validates the block size against the entire volume, including
+    # metadata, rather than just the eventual allocation area. In particular,
+    # a 32 MiB volume needs 1024-byte blocks even though its allocation area
+    # would fit in 65535 blocks of 512 bytes.
     retval = minalign
-    while volsize - min_nonalloc_blks*512 > retval*65536:
+    while volsize // retval > 65535:
         retval += minalign
     return retval
 
