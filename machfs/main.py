@@ -77,7 +77,7 @@ def _encode_name(name, kind='file'):
 
 
 def _bb_name(name):
-    return bitmanip.pstring(_encode_name(name)).ljust(16)
+    return bitmanip.pstring(_encode_name(name, 'bb')).ljust(16, b'\x00')
 
 
 def _common_prefix(*tuples):
@@ -431,7 +431,7 @@ class Volume(AbstractFolder):
             wrap.path = path
             wrap.cnid = drNxtCNID; drNxtCNID += 1
 
-            if isinstance(obj, File) and obj.type.upper() == b'ZSYS':
+            if bootable and isinstance(obj, File) and obj.type.upper() == b'ZSYS':
                 try:
                     sysname = path[-1]
 

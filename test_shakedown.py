@@ -8,7 +8,6 @@ from machfs.main import _catalog_rec_sort, OutOfSpaceError
 from machfs.main import _suggest_allocblk_size, _get_every_extent
 
 
-
 def image(volume):
     return volume.write(800 * 1024, desktopdb=False, bootable=False)
 
@@ -283,6 +282,22 @@ class BootAndAliasTests(unittest.TestCase):
         with self.assertRaises(ValueError): image(v)
         v['root'].aliastarget=v['root']
         with self.assertRaises(ValueError): image(v)
+
+    def test_boot_names_cannot_resize_boot_blocks(self):
+        from macresources import Resource,make_file
+        for name in ('System','S'*15,'S'*16,'S'*31):
+            v=Volume();v['System Folder']=Folder()
+            system=File();system.type=b'ZSYS'
+            system.rsrc=make_file([Resource(b'boot',1,data=b'LK'+bytes(1022))])
+            finder=File();finder.type=b'FNDR'
+            v['System Folder'][name]=system;v['System Folder']['Finder']=finder
+            for bootable in (False,True):
+                data=v.write(800*1024,desktopdb=False,bootable=bootable)
+                self.assertEqual(len(data),800*1024)
+                self.assertEqual(data[1024:1026],b'BD')
+                self.assertEqual(data[:2],b'LK' if bootable and len(name)<=15 else bytes(2))
+                copy=Volume();copy.read(data)
+                self.assertEqual(copy['System Folder',name].rsrc,system.rsrc)
 
 
 if __name__ == '__main__':
