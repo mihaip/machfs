@@ -280,6 +280,7 @@ class Volume(AbstractFolder):
                 f.crdate, f.mddate, f.bkdate = filCrDat, filMdDat, filBkDat
                 f.type, f.creator, f.flags, f.y, f.x = struct.unpack_from('>4s4sHhh', filUsrWds)
                 f.fndrInfo = filFndrInfo
+                f.locked = bool(filFlags & 1)
 
                 f.data = getfork(filLgLen, filExtRec, filFlNum, 'data')
                 f.rsrc = getfork(filRLgLen, filRExtRec, filFlNum, 'rsrc')
@@ -297,6 +298,7 @@ class Volume(AbstractFolder):
                 # This should be dir ID 2 with parent 1, which is information
                 # about the root folder in the volume, copy it up there.
                 self.name = child_name.decode('mac_roman')
+                self.flags = child_obj.flags
                 self.usrInfo = child_obj.usrInfo
                 self.fndrInfo = child_obj.fndrInfo
 
@@ -533,7 +535,7 @@ class Volume(AbstractFolder):
                 cdrType = 2
                 # File thread records are optional on HFS volumes. We do not
                 # emit them below, so leave kHFSThreadExistsMask clear.
-                filFlags = 0
+                filFlags = int(bool(obj.locked))
                 filTyp = 0
                 filUsrWds = struct.pack('>4s4sHhhxxxxxx', wrap.type, wrap.creator, obj.flags, obj.y, obj.x)
                 filFlNum = wrap.cnid
@@ -618,7 +620,7 @@ class Volume(AbstractFolder):
         drFreeBks = drNmAlBlks - len(blkaccum)
         drWrCnt = 0 # ????volume write count
         drVCSize = drVBMCSize = drCtlCSize = 0
-        drVolBkUp = 0                  # date and time of last backup
+        drVolBkUp = self.bkdate        # date and time of last backup
         drVSeqNum = 0                  # volume backup sequence number
 
         if self.open_folder is None:

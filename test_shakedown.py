@@ -71,6 +71,16 @@ class ShakedownTests(unittest.TestCase):
             for other in names:
                 self.assertEqual(other in folder, sortkey(name) == sortkey(other), (name, other))
 
+    def test_locked_and_backup_date(self):
+        v = Volume(); v.bkdate = 1234567
+        v['locked'] = f = File(); f.locked = True
+        result = image(v)
+        file_record = next(r for r in catalog_records(result) if r[(r[0]+2)&~1] == 2)
+        self.assertEqual(file_record[((file_record[0]+2)&~1)+2] & 1, 1)
+        copy = Volume(); copy.read(result)
+        self.assertTrue(copy['locked'].locked)
+        self.assertEqual(copy.bkdate, v.bkdate)
+
 
 def validate_tree(tree):
     """Independent structural oracle: never calls machfs's node reader."""
