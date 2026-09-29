@@ -54,8 +54,16 @@ def unpack_extent_record(record):
 
 def _unpack_btree_node(buf, start):
     """Slice a btree node into records, including the 14-byte node descriptor"""
+    if start < 0 or start % 512 or start + 512 > len(buf):
+        raise ValueError('B-tree node outside file')
     ndFLink, ndBLink, ndType, ndNHeight, ndNRecs = struct.unpack_from('>LLBBH', buf, start)
+    if ndNRecs > 248:
+        raise ValueError('B-tree offset table overlaps node descriptor')
     offsets = list(reversed(struct.unpack_from('>%dH'%(ndNRecs+1), buf, start+512-2*(ndNRecs+1))))
+    if (offsets[0] != 14 or offsets[-1] > 512 - 2*(ndNRecs+1)
+            or any(offset % 2 for offset in offsets)
+            or any(a >= b for a, b in zip(offsets, offsets[1:]))):
+        raise ValueError('Invalid B-tree record offsets')
     starts = offsets[:-1]
     stops = offsets[1:]
     records = [bytes(buf[start+i_start:start+i_stop]) for (i_start, i_stop) in zip(starts, stops)]
@@ -85,27 +93,52 @@ def _get_index_record_pointer(rec):
 
 
 def dump_btree(buf):
-    """Walk an HFS B*-tree, returning an iterator of (key, value) tuples."""
+    """Walk an HFS B*-tree, yielding packed leaf records."""
 
     # debug_btree(buf)
 
     # Get the header node
-    ndFLink, ndBLink, ndType, ndNHeight, (header_rec, unused_rec, map_rec) = _unpack_btree_node(buf, 0)
+    ndFLink, ndBLink, ndType, ndNHeight, records = _unpack_btree_node(buf, 0)
+    if ndType != 1 or ndNHeight != 0 or len(records) != 3 or len(records[0]) < 30:
+        raise ValueError('Invalid B-tree header node')
+    header_rec, unused_rec, map_rec = records
 
     # Ask about the header record in the header node
     bthDepth, bthRoot, bthNRecs, bthFNode, bthLNode, bthNodeSize, bthKeyLen, bthNNodes, bthFree = \
     struct.unpack_from('>HLLLLHHLL', header_rec)
+    if bthNodeSize != 512 or not 1 <= bthNNodes <= len(buf) // 512 or bthFree > bthNNodes:
+        raise ValueError('Invalid B-tree node geometry')
+    if not bthNRecs:
+        if any((bthDepth, bthRoot, bthFNode, bthLNode)):
+            raise ValueError('Invalid empty B-tree')
+        return
+    if not bthDepth or not 0 < bthRoot < bthNNodes:
+        raise ValueError('Invalid B-tree root')
     # print('btree', bthDepth, bthRoot, bthNRecs, bthFNode, bthLNode, bthNodeSize, bthKeyLen, bthNNodes, bthFree)
 
     # And iterate through the linked list of leaf nodes
     this_leaf = bthFNode
+    seen = set()
+    previous_leaf = 0
+    record_count = 0
     while True:
+        if not 0 < this_leaf < bthNNodes or this_leaf in seen:
+            raise ValueError('Invalid or cyclic B-tree leaf chain')
+        seen.add(this_leaf)
         ndFLink, ndBLink, ndType, ndNHeight, records = _unpack_btree_node(buf, 512*this_leaf)
+        if ndType != 0xFF or ndNHeight != 1 or ndBLink != previous_leaf:
+            raise ValueError('Invalid B-tree leaf descriptor')
+        record_count += len(records)
+        if record_count > bthNRecs:
+            raise ValueError('Invalid B-tree leaf record count')
 
         yield from records
 
         if this_leaf == bthLNode:
+            if ndFLink or record_count != bthNRecs:
+                raise ValueError('Invalid B-tree last leaf')
             break
+        previous_leaf = this_leaf
         this_leaf = ndFLink
 
 

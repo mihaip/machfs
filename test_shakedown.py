@@ -71,6 +71,10 @@ class ShakedownTests(unittest.TestCase):
             for other in names:
                 self.assertEqual(other in folder, sortkey(name) == sortkey(other), (name, other))
 
+    def test_empty_btree(self):
+        tree = btree.make_btree([], bthKeyLen=7, blksize=512)
+        self.assertEqual(list(btree.dump_btree(tree)), [])
+
     def test_locked_and_backup_date(self):
         v = Volume(); v.bkdate = 1234567
         v['locked'] = f = File(); f.locked = True
@@ -96,6 +100,12 @@ class ShakedownTests(unittest.TestCase):
             v.write()
         self.assertEqual(list(v.items()), before)
         self.assertEqual(len(v), 1)
+
+    def test_invalid_leaf_offsets(self):
+        tree = bytearray(btree.make_btree([(b'key', b'value')], 37, 512))
+        struct.pack_into('>H', tree, 512+510, 12)
+        with self.assertRaises(ValueError):
+            list(btree.dump_btree(tree))
 
 
 def validate_tree(tree):
@@ -164,8 +174,7 @@ class StructureTests(unittest.TestCase):
             records=[(i.to_bytes(4,'big'),rng.randbytes(rng.randrange(1,460))) for i in range(count)]
             tree=btree.make_btree(records,37,rng.choice([512,1024,2048,4096]))
             validate_tree(tree)
-            if count:
-                self.assertEqual(len(list(btree.dump_btree(tree))),count)
+            self.assertEqual(len(list(btree.dump_btree(tree))),count)
 
     def test_map_boundaries(self):
         def node_count(leaves):
@@ -181,6 +190,21 @@ class StructureTests(unittest.TestCase):
             for block in (512,4096,32768):
                 tree=btree.make_btree([(i.to_bytes(4,'big'),bytes(470)) for i in range(count)],37,block)
                 validate_tree(tree)
+
+    def test_seeded_bad_offsets(self):
+        rng=random.Random(5984)
+        original=btree.make_btree([(b'key',b'value')],37,512)
+        for offset in [0,12,15,509,510,512,65535]+[rng.randrange(513,65536) for _ in range(50)]:
+            tree=bytearray(original)
+            struct.pack_into('>H',tree,1022,offset)
+            with self.assertRaises(ValueError): list(btree.dump_btree(tree))
+
+    def test_leaf_cycles_and_descriptor_mutations(self):
+        original=btree.make_btree([(bytes([i]),bytes(470)) for i in range(4)],37,512)
+        for offset,fmt,value in ((512,'>L',1),(512+4,'>L',1),(512+8,'>B',0),
+                (512+9,'>B',0),(512+10,'>H',65535),(14+6,'>L',1)):
+            tree=bytearray(original);struct.pack_into(fmt,tree,offset,value)
+            with self.assertRaises(ValueError): list(btree.dump_btree(tree))
 
     def test_sparse_geometry(self):
         for align in (512,2048,4096):
