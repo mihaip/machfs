@@ -197,8 +197,9 @@ def make_btree(records, bthKeyLen, blksize):
             if i < len(newnodes)-1:
                 node.ndFLink = newnodes[i+1][0]
 
-    # Header node already has a 256-bit bitmap record (2048-bit)
-    # Add map nodes with 3952-bit bitmap recs to cover every node
+    # Header node already has a 256-byte bitmap record (2048 bits).
+    # Map nodes reserve two bytes of free space after their 492-byte bitmap.
+    map_bits = 492 * 8
     bits_covered = 2048
     mapnodes = []
     first_mapnode_index = None
@@ -206,7 +207,7 @@ def make_btree(records, bthKeyLen, blksize):
         mapnode = _Node(ndType=2, ndNHeight=0)
         nodelist.append(mapnode)
         mapnodes.append(mapnode)
-        mapnode.records = [bytes(3952//8)]
+        mapnode.records = [bytes(map_bits//8)]
         bits_covered += len(mapnode.records[0]) * 8
         if len(mapnodes) == 1:
             first_mapnode_index = len(nodelist) - 1
@@ -214,8 +215,8 @@ def make_btree(records, bthKeyLen, blksize):
     # Populate the bitmap (1 = used)
     headnode.records[2] = bitmanip.bits(2048, len(nodelist))
     for i, mnode in enumerate(mapnodes):
-        nset = len(nodelist) - 2048 - i*3952
-        mnode.records = [bitmanip.bits(3952, nset)]
+        nset = len(nodelist) - 2048 - i*map_bits
+        mnode.records = [bitmanip.bits(map_bits, nset)]
 
     # Run back and forth to join up one linked list for each type
     most_recent = {}

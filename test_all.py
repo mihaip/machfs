@@ -122,26 +122,38 @@ def test_file_catalog_reserved_fields():
     assert btree.unpack_extent_record(file_record[17])
 
 
-def test_map_node_heights():
+def test_map_nodes():
     # Force enough leaf nodes to require more bitmap space than the header
     # node provides, and enough total nodes to require multiple map nodes.
     records = [(i.to_bytes(4, 'big'), bytes(470)) for i in range(6000)]
     tree = btree.make_btree(records, bthKeyLen=37, blksize=512)
 
-    first_map_node, _, _, _, _ = btree._unpack_btree_node(tree, 0)
+    first_map_node, _, _, _, header_records = btree._unpack_btree_node(tree, 0)
     assert first_map_node != 0
+    total_nodes, free_nodes = struct.unpack_from('>LL', header_records[0], 22)
+    bitmap = header_records[2]
 
     map_node_count = 0
     map_node = first_map_node
     while map_node:
-        map_node, _, node_type, node_height, _ = btree._unpack_btree_node(
+        # The BeOS R3 HFS driver rejects a free-space offset other than 506.
+        assert struct.unpack_from('>HH', tree, 512 * map_node + 508) == (506, 14)
+        assert tree[512 * map_node + 506:512 * map_node + 508] == bytes(2)
+        map_node, _, node_type, node_height, records = btree._unpack_btree_node(
             tree, 512 * map_node
         )
         assert node_type == 2
         assert node_height == 0
+        assert len(records) == 1
+        assert len(records[0]) == 492
+        bitmap += records[0]
         map_node_count += 1
 
     assert map_node_count > 1
+    bits = [bool(byte & (0x80 >> bit)) for byte in bitmap for bit in range(8)]
+    assert len(bits) >= total_nodes
+    assert all(bits[:total_nodes - free_nodes])
+    assert not any(bits[total_nodes - free_nodes:])
 
 
 def test_macos_mount():
