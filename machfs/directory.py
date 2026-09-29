@@ -3,6 +3,7 @@ import os
 from os import path
 from macresources import make_rez_code, parse_rez_code, make_file, parse_file
 from warnings import warn
+from ._names import name_key
 
 
 TEXT_TYPES = [b'TEXT', b'ttro'] # Teach Text read-only
@@ -65,8 +66,8 @@ def _swapsep(n):
 
 class AbstractFolder(MutableMapping):
     def __init__(self, from_dict=()):
-        self._prefdict = {} # lowercase to preferred
-        self._maindict = {} # lowercase to contents
+        self._prefdict = {} # HFS collation key to preferred
+        self._maindict = {} # HFS collation key to contents
         self.flags = 0 # help me!
         self.update(from_dict)
 
@@ -88,7 +89,7 @@ class AbstractFolder(MutableMapping):
 
         key.encode('mac_roman')
 
-        lower = key.lower()
+        lower = name_key(key)
         self._prefdict[lower] = key
         self._maindict[lower] = value
 
@@ -106,7 +107,7 @@ class AbstractFolder(MutableMapping):
         except AttributeError:
             pass
 
-        lower = key.lower()
+        lower = name_key(key)
         return self._maindict[lower]
 
     def __delitem__(self, key):
@@ -125,7 +126,7 @@ class AbstractFolder(MutableMapping):
         except AttributeError:
             pass
 
-        lower = key.lower()
+        lower = name_key(key)
         del self._maindict[lower]
         del self._prefdict[lower]
 

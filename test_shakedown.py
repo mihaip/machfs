@@ -22,6 +22,30 @@ def catalog_records(data):
     return list(btree.dump_btree(tree))
 
 
+class ShakedownTests(unittest.TestCase):
+    def test_hfs_name_equivalence(self):
+        v = Volume()
+        v['a b'] = File()
+        self.assertIs(v['a b'], v['a\xa0b'])
+        replacement = File()
+        v['a\xa0b'] = replacement
+        self.assertEqual(len(v), 1)
+        self.assertIs(v['a b'], replacement)
+        del v[b'a b']
+        self.assertFalse(v)
+
+    def test_all_macroman_name_pairs(self):
+        # Use the writer's existing HFS collation as a separate oracle for
+        # mapping equality, including Unicode case pairs HFS keeps distinct.
+        names = [bytes([c]).decode('mac_roman') for c in range(1, 256) if c != 58]
+        def sortkey(name):
+            return _catalog_rec_sort((b'\0\0\0\2\1' + name.encode('mac_roman'),))
+        for name in names:
+            folder = Folder(); obj = File(); folder[name] = obj
+            for other in names:
+                self.assertEqual(other in folder, sortkey(name) == sortkey(other), (name, other))
+
+
 def validate_tree(tree):
     """Independent structural oracle: never calls machfs's node reader."""
     def node(number):
