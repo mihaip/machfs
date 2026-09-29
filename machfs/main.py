@@ -46,9 +46,14 @@ def _get_every_extent(nblocks, firstrecord, cnid, xoflow, fork):
         extlist.append((a, b))
 
     while accum < nblocks:
-        nextrecord = xoflow[cnid, fork, accum]
-        for a, b in btree.unpack_extent_record(nextrecord):
-            if not b: continue
+        try:
+            nextrecord = xoflow[cnid, fork, accum]
+        except KeyError:
+            raise ValueError('Missing extents overflow record') from None
+        extents = btree.unpack_extent_record(nextrecord)
+        if not extents:
+            raise ValueError('Empty extents overflow record')
+        for a, b in extents:
             accum += b
             extlist.append((a, b))
 
@@ -200,6 +205,8 @@ class Volume(AbstractFolder):
 
         if not valid_volume:
             raise ValueError('Magic number not found in %d byte image' % (len(from_volume)))
+        if len(from_volume) < 1536:
+            raise ValueError('Truncated HFS volume header')
 
         drSigWord, drCrDate, drLsMod, drAtrb, drNmFls, \
         drVBMSt, drAllocPtr, drNmAlBlks, drAlBlkSiz, drClpSiz, drAlBlSt, \
@@ -210,11 +217,23 @@ class Volume(AbstractFolder):
         drCTFlSize, drCTExtRec, \
         = struct.unpack_from('>2sLLHHHHHLLHLH28pLHLLLHLL32sHHHL12sL12s', from_volume, 1024)
 
+        if (drSigWord != b'BD' or drAlBlkSiz < 512 or drAlBlkSiz % 512
+                or not drNmAlBlks or drAlBlSt < 3
+                or 512*drAlBlSt + drAlBlkSiz*drNmAlBlks > len(from_volume)):
+            raise ValueError('Invalid HFS allocation geometry')
+
         self.crdate, self.mddate, self.bkdate = drCrDate, drLsMod, drVolBkUp
 
         block2offset = lambda block: 512*drAlBlSt + drAlBlkSiz*block
-        getextents = lambda extents: b''.join(from_volume[block2offset(firstblk):block2offset(firstblk+blkcnt)] for (firstblk, blkcnt) in extents)
-        getfork = lambda size, extrec1, cnid, fork: getextents(_get_every_extent((size+drAlBlkSiz-1)//drAlBlkSiz, extrec1, cnid, extoflow, fork))[:size]
+        def getfork(size, extrec1, cnid, fork):
+            if size > drNmAlBlks * drAlBlkSiz:
+                raise ValueError('Fork larger than allocation area')
+            extents = _get_every_extent((size+drAlBlkSiz-1)//drAlBlkSiz,
+                                       extrec1, cnid, extoflow, fork)
+            if any(first + count > drNmAlBlks for first, count in extents):
+                raise ValueError('Extent outside allocation area')
+            return b''.join(from_volume[block2offset(first):block2offset(first+count)]
+                            for first, count in extents)[:size]
 
         extoflow = {}
         for rec in btree.dump_btree(getfork(drXTFlSize, drXTExtRec, 3, 'data')):

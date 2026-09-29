@@ -49,6 +49,13 @@ class ShakedownTests(unittest.TestCase):
             self.assertEqual(copy['file'].data,b'wrapped')
             with self.assertRaises(ValueError): Volume().read(wrapped[:-1])
 
+    def test_no_progress_in_extent_chain(self):
+        initial=struct.pack('>6H',1,1,0,0,0,0)
+        with self.assertRaises(ValueError):
+            _get_every_extent(2,initial,16,{(16,'data',1):bytes(12)},'data')
+        with self.assertRaises(ValueError):
+            _get_every_extent(2,initial,16,{},'data')
+
     def test_hfs_name_equivalence(self):
         v = Volume()
         v['a b'] = File()
@@ -106,6 +113,23 @@ class ShakedownTests(unittest.TestCase):
         struct.pack_into('>H', tree, 512+510, 12)
         with self.assertRaises(ValueError):
             list(btree.dump_btree(tree))
+
+    def test_volume_geometry_rejected(self):
+        result = bytearray(image(Volume()))
+        struct.pack_into('>L', result, 1024+20, 0)
+        with self.assertRaises(ValueError):
+            Volume().read(result)
+
+    def test_truncated_forks_and_out_of_range_extents(self):
+        v=Volume();v['file']=File();v['file'].data=b'payload'
+        raw=image(v)
+        with self.assertRaises(ValueError): Volume().read(raw[:4096])
+        record=next(r for r in catalog_records(raw) if r[(r[0]+2)&~1]==2)
+        offset=raw.index(record)+((record[0]+2)&~1)
+        data=bytearray(raw)
+        count=struct.unpack_from('>H',raw,1042)[0]
+        struct.pack_into('>H',data,offset+74,count)
+        with self.assertRaises(ValueError): Volume().read(data)
 
 
 def validate_tree(tree):
