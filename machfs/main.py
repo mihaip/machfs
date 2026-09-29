@@ -180,9 +180,15 @@ class Volume(AbstractFolder):
 
     def read(self, from_volume, preserve_desktopdb=False):
         valid_volume = False
-        if len(from_volume) in [419284, 819284, 838484]:
-            # 400K/800K DiskCopy image, 84 byte header
-            from_volume = from_volume[84:]
+        if (len(from_volume) >= 84 and from_volume[0] <= 63
+                and from_volume[82:84] == b'\x01\x00'
+                and from_volume[1108:1110] == b'BD'):
+            # Disk Copy 4.2: the header declares data and tag lengths. Do not
+            # guess the wrapper from a short list of floppy image sizes.
+            data_size, tag_size = struct.unpack_from('>LL', from_volume, 64)
+            if data_size < 1536 or data_size % 512 or 84 + data_size + tag_size != len(from_volume):
+                raise ValueError('Invalid Disk Copy 4.2 image lengths')
+            from_volume = from_volume[84:84+data_size]
             valid_volume = True
         else:
             # 0..511 byte header

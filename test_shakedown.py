@@ -32,6 +32,23 @@ class ShakedownTests(unittest.TestCase):
                 self.assertEqual(block % align,0)
                 self.assertLessEqual(size//block,65535)
 
+    def test_diskcopy_header_lengths(self):
+        for size,tags,kind,fmt in ((400*1024,0,0,2),(400*1024,9600,0,2),
+                (800*1024,0,1,0x22),(800*1024,19200,1,0x22),
+                (1440*1024,0,3,2)):
+            v=Volume();v['file']=File();v['file'].data=b'wrapped'
+            raw=v.write(size,desktopdb=False)
+            # Disk Copy checksum: add each big-endian word, rotate right one.
+            checksum=0
+            for word, in struct.iter_unpack('>H',raw):
+                checksum=(checksum+word)&0xffffffff
+                checksum=(checksum>>1)|((checksum&1)<<31)
+            header=struct.pack('>64pLLLLBBH',b'Test',size,tags,checksum,0,kind,fmt,256)
+            wrapped=header+raw+bytes(tags)
+            copy=Volume();copy.read(wrapped)
+            self.assertEqual(copy['file'].data,b'wrapped')
+            with self.assertRaises(ValueError): Volume().read(wrapped[:-1])
+
     def test_hfs_name_equivalence(self):
         v = Volume()
         v['a b'] = File()
