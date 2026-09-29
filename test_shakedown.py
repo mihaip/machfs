@@ -81,6 +81,22 @@ class ShakedownTests(unittest.TestCase):
         self.assertTrue(copy['locked'].locked)
         self.assertEqual(copy.bkdate, v.bkdate)
 
+    def test_write_does_not_mutate_desktop_entries(self):
+        v = Volume(); v['Desktop'] = f = File(); f.data = b'original'
+        before = list(v.items())
+        v.write()
+        self.assertEqual(list(v.items()), before)
+        self.assertIs(v['Desktop'], f)
+        self.assertEqual(v['Desktop'].data, b'original')
+
+    def test_failed_write_does_not_mutate_volume(self):
+        v = Volume(); v['huge'] = f = File(); f.data = bytes(900*1024)
+        before = list(v.items())
+        with self.assertRaises(OutOfSpaceError):
+            v.write()
+        self.assertEqual(list(v.items()), before)
+        self.assertEqual(len(v), 1)
+
 
 def validate_tree(tree):
     """Independent structural oracle: never calls machfs's node reader."""

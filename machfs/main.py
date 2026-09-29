@@ -378,24 +378,24 @@ class Volume(AbstractFolder):
         godwrap = _TempWrapper(None)
         godwrap.cnid = 1
 
-        root_dict_backup = self._prefdict
+        # Generate Desktop files in a private root mapping, including on failure.
+        contents = AbstractFolder(self.items())
         if desktopdb:
-            self._prefdict = dict(self._prefdict)
             f = File()
             f.type, f.creator = b'FNDR', b'ERIK'
             f.flags = FinderFlags.kIsInvisible
             f.rsrc = make_file([Resource(b'STR ', 0, data=b'\x0AFinder 1.0')])
-            self['Desktop'] = f
+            contents['Desktop'] = f
             if size >= 2*1024*1024:
                 f = File()
                 f.type, f.creator = b'BTFL', b'DMGR'
                 f.flags = FinderFlags.kIsInvisible
                 f.data = btree.make_btree([], bthKeyLen=37, blksize=drAlBlkSiz)
-                self['Desktop DB'] = f
+                contents['Desktop DB'] = f
                 f = File()
                 f.type, f.creator = b'DTFL', b'DMGR'
                 f.flags = FinderFlags.kIsInvisible
-                self['Desktop DF'] = f
+                contents['Desktop DF'] = f
 
         system_folder_cnid = 0
         startapp_folder_cnid = 0
@@ -403,7 +403,7 @@ class Volume(AbstractFolder):
 
         path2wrap = {(): godwrap, (self.name,): topwrap}
         drNxtCNID = 16
-        for path, obj, aliastarget in _defer_special_files(self.iter_paths()):
+        for path, obj, aliastarget in _defer_special_files(contents.iter_paths()):
             path = (self.name,) + path
             wrap = _TempWrapper(obj)
             path2wrap[path] = wrap
@@ -514,8 +514,6 @@ class Volume(AbstractFolder):
                     accumulate(bitmanip.chunkify(wrap.rsrc, drAlBlkSiz))
                     wrap.rfrk = (pre, len(blkaccum)-pre)
 
-        self._prefdict = root_dict_backup
-
         catalog = [] # (key, value) tuples
 
         drFilCnt = 0
@@ -564,7 +562,7 @@ class Volume(AbstractFolder):
 
                 cdrType = 1
                 dirFlags = obj.flags # must fix
-                dirVal = len(wrap.of)
+                dirVal = len(contents) if obj is self else len(obj)
                 dirDirID = wrap.cnid
                 dirCrDat, dirMdDat, dirBkDat = obj.crdate, obj.mddate, obj.bkdate
                 dirUsrInfo = obj.usrInfo or bytes(16)
@@ -611,8 +609,8 @@ class Volume(AbstractFolder):
                 startapp_folder_cnid = 0
 
         # Create the Volume Information Block
-        drNmFls = sum(isinstance(x, File) for x in self.values())
-        drNmRtDirs = sum(not isinstance(x, File) for x in self.values())
+        drNmFls = sum(isinstance(x, File) for x in contents.values())
+        drNmRtDirs = sum(not isinstance(x, File) for x in contents.values())
         drVBMSt = 3 # first block of volume bitmap
         drAllocPtr = 0
         drClpSiz = drXTClpSiz = drCTClpSiz = drAlBlkSiz
