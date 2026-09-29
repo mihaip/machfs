@@ -86,7 +86,7 @@ def _common_prefix(*tuples):
             if t[i] != tuples[0][i]:
                 return i
 
-    return 0
+    return min(len(t) for t in tuples)
 
 
 def _link_aliases(vol_cr_date, cnid_dict): # vol creation date confirms within-volume alias
@@ -120,9 +120,9 @@ def _link_aliases(vol_cr_date, cnid_dict): # vol creation date confirms within-v
             pass
 
 
-def _defer_special_files(iter_paths):
+def _defer_special_files(iter_paths, root=None):
     """Defer special files (aliases) to late CNIDs, and resolve aliases"""
-    approved_dict = dict()
+    approved_dict = {id(root): ()} if root is not None else {}
     unapproved = []
 
     for path, obj in iter_paths:
@@ -149,7 +149,8 @@ def _defer_special_files(iter_paths):
             unapproved.pop(i)
             made_progress = True
 
-        if not made_progress: break
+        if not made_progress:
+            raise ValueError('Alias target is outside this volume or aliases form a cycle')
 
 
 def _alis_append(alis, kind, data):
@@ -335,6 +336,7 @@ class Volume(AbstractFolder):
             self.pop('Desktop DB', None)
             self.pop('Desktop DF', None)
 
+        cnids[2] = self
         _link_aliases(drCrDate, cnids)
 
     def write(self, size=800*1024, align=512, desktopdb=True, bootable=True, startapp=None, sparse=False):
@@ -422,7 +424,7 @@ class Volume(AbstractFolder):
 
         path2wrap = {(): godwrap, (self.name,): topwrap}
         drNxtCNID = 16
-        for path, obj, aliastarget in _defer_special_files(contents.iter_paths()):
+        for path, obj, aliastarget in _defer_special_files(contents.iter_paths(), self):
             path = (self.name,) + path
             wrap = _TempWrapper(obj)
             path2wrap[path] = wrap
@@ -484,7 +486,7 @@ class Volume(AbstractFolder):
                 userType = b''
                 aliasSize = 9999 # fill this short at offset 4
                 aliasVersion = 2
-                thisAliasKind = 1 if isinstance(targetobj, Folder) else 0
+                thisAliasKind = 1 if isinstance(targetobj, AbstractFolder) else 0
                 volumeName = drVN
                 volumeCrDate = drCrDate
                 volumeSig = drSigWord
@@ -512,7 +514,8 @@ class Volume(AbstractFolder):
                     nlvlFrom, nlvlTo, volumeAttributes, volumeFSID \
                 ) + bytes(10) # reserved stuff
 
-                _alis_append(alis.data, 0, aliastarget[-2].encode('mac_roman'))
+                if len(aliastarget) > 1:
+                    _alis_append(alis.data, 0, aliastarget[-2].encode('mac_roman'))
                 _alis_append(alis.data, 2, ':'.join(aliastarget).encode('mac_roman'))
                 _alis_append(alis.data, -1, b'')
 

@@ -250,5 +250,21 @@ class StructureTests(unittest.TestCase):
                 self.assertEqual(left[1024:1536],right[:512])
 
 
+class BootAndAliasTests(unittest.TestCase):
+    def test_alias_targets_and_cycles(self):
+        v=Volume();v['folder']=Folder();v['folder']['file']=File()
+        for name,target in [('root',v),('folder alias',v['folder']),('file alias',v['folder','file'])]:
+            f=File();f.flags=0x8000;f.aliastarget=target;v[name]=f
+        for _ in range(2):
+            copy=Volume();copy.read(image(v));v=copy
+            self.assertIs(v['root'].aliastarget,v)
+            self.assertIs(v['folder alias'].aliastarget,v['folder'])
+            self.assertIs(v['file alias'].aliastarget,v['folder','file'])
+        v['root'].aliastarget=File()
+        with self.assertRaises(ValueError): image(v)
+        v['root'].aliastarget=v['root']
+        with self.assertRaises(ValueError): image(v)
+
+
 if __name__ == '__main__':
     unittest.main()
