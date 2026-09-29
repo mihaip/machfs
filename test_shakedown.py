@@ -251,6 +251,17 @@ class StructureTests(unittest.TestCase):
 
 
 class BootAndAliasTests(unittest.TestCase):
+    def test_alias_payload_preserved(self):
+        from macresources import Resource,make_file,parse_file
+        v=Volume();v['target']=File();v['alias']=f=File()
+        f.flags=0x8000;f.aliastarget=v['target'];f.data=b'companion data'
+        f.rsrc=make_file([Resource(b'TEXT',42,data=b'companion resource')])
+        copy=Volume();copy.read(image(v))
+        self.assertEqual(copy['alias'].data,f.data)
+        resources={(r.type,r.id):bytes(r.data) for r in parse_file(copy['alias'].rsrc)}
+        self.assertEqual(resources[b'TEXT',42],b'companion resource')
+        self.assertIn((b'alis',0),resources)
+
     def test_alias_targets_and_cycles(self):
         v=Volume();v['folder']=Folder();v['folder']['file']=File()
         for name,target in [('root',v),('folder alias',v['folder']),('file alias',v['folder','file'])]:

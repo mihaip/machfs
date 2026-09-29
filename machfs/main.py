@@ -481,8 +481,6 @@ class Volume(AbstractFolder):
                     else:
                         wrap.type = targetobj.type
 
-                wrap.data = b''
-
                 userType = b''
                 aliasSize = 9999 # fill this short at offset 4
                 aliasVersion = 2
@@ -523,7 +521,11 @@ class Volume(AbstractFolder):
 
                 # open('/tmp/creating','wb').write(alis.data)
 
-                wrap.rsrc = make_file([alis])
+                # Regenerate the target record without discarding companion
+                # resources (icons, custom metadata) or the original data fork.
+                resources = [r for r in parse_file(obj.rsrc)
+                             if (r.type, r.id) != (b'alis', 0)]
+                wrap.rsrc = make_file([*resources, alis])
 
             if isinstance(obj, File):
                 wrap.dfrk = wrap.rfrk = (0, 0)
