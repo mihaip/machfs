@@ -68,7 +68,7 @@ def _encode_name(name, kind='file'):
     except UnicodeEncodeError:
         raise BadNameError(name)
     except AttributeError:
-        pass
+        encoded = bytes(name)
 
     if not 1 <= len(encoded) <= longest or b':' in encoded:
         raise BadNameError(name)

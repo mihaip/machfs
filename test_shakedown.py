@@ -131,6 +131,11 @@ class ShakedownTests(unittest.TestCase):
         struct.pack_into('>H',data,offset+74,count)
         with self.assertRaises(ValueError): Volume().read(data)
 
+    def test_byte_volume_name(self):
+        v=Volume();v.name=b'Bytes'
+        copy=Volume();copy.read(image(v))
+        self.assertEqual(copy.name,'Bytes')
+
 
 def validate_tree(tree):
     """Independent structural oracle: never calls machfs's node reader."""
