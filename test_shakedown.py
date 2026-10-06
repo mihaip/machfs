@@ -119,10 +119,53 @@ class ShakedownTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Volume().read(result)
 
+    def test_missing_unused_allocation_tail(self):
+        v = Volume(); v['folder'] = Folder(); v['folder']['file'] = f = File()
+        f.data = b'data fork'; f.rsrc = b'resource fork'
+        for blocksize in (512, 2048):
+            with self.subTest(blocksize=blocksize):
+                raw = v.write(800*1024, align=blocksize, desktopdb=False, bootable=False)
+                start = struct.unpack_from('>H', raw, 1052)[0] * 512
+                extents = btree.unpack_extent_record(raw[1174:1186])
+                end = start + max(a+b for a, b in extents) * blocksize
+                copy = Volume(); copy.read(raw[:end])
+                self.assertEqual(copy['folder']['file'].data, f.data)
+                self.assertEqual(copy['folder']['file'].rsrc, f.rsrc)
+                self.assertEqual(copy.write(800*1024, align=blocksize,
+                    desktopdb=False, bootable=False), raw)
+
+    def test_missing_fork_slack_but_not_payload(self):
+        v = Volume(); v['file'] = f = File()
+        f.data = b'data payload'; f.rsrc = b'resource payload'
+        raw = image(v)
+        record = next(r for r in catalog_records(raw) if r[(r[0]+2)&~1] == 2)
+        offset = raw.index(record) + ((record[0]+2)&~1)
+        count, blocksize = struct.unpack_from('>HL', raw, 1042)
+        start = struct.unpack_from('>H', raw, 1052)[0] * 512
+        for extent_offset, payload in ((74, f.data), (86, f.rsrc)):
+            with self.subTest(extent_offset=extent_offset):
+                data = bytearray(raw)
+                # Relocate the fork after the catalog with an extra unused block.
+                struct.pack_into('>6H', data, offset+extent_offset, count-2, 2, 0, 0, 0, 0)
+                fork_start = start + (count-2)*blocksize
+                data[fork_start:fork_start+len(payload)] = payload
+                end = fork_start + len(payload)
+                copy = Volume(); copy.read(data[:end])
+                self.assertEqual(copy['file'].data, f.data)
+                self.assertEqual(copy['file'].rsrc, f.rsrc)
+                with self.assertRaisesRegex(ValueError, 'Truncated HFS fork'):
+                    Volume().read(data[:end-1])
+
     def test_truncated_forks_and_out_of_range_extents(self):
         v=Volume();v['file']=File();v['file'].data=b'payload'
         raw=image(v)
-        with self.assertRaises(ValueError): Volume().read(raw[:4096])
+        start=struct.unpack_from('>H',raw,1052)[0]*512
+        blocksize=struct.unpack_from('>L',raw,1044)[0]
+        catalog_start=btree.unpack_extent_record(raw[1174:1186])[0][0]
+        catalog_size=struct.unpack_from('>L',raw,1170)[0]
+        end=start+catalog_start*blocksize+catalog_size
+        with self.assertRaisesRegex(ValueError,'Truncated HFS fork'):
+            Volume().read(raw[:end-1])
         record=next(r for r in catalog_records(raw) if r[(r[0]+2)&~1]==2)
         offset=raw.index(record)+((record[0]+2)&~1)
         data=bytearray(raw)

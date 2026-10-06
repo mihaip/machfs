@@ -219,9 +219,12 @@ class Volume(AbstractFolder):
         = struct.unpack_from('>2sLLHHHHHLLHLH28pLHLLLHLL32sHHHL12sL12s', from_volume, 1024)
 
         if (drSigWord != b'BD' or drAlBlkSiz < 512 or drAlBlkSiz % 512
-                or not drNmAlBlks or drAlBlSt < 3
-                or 512*drAlBlSt + drAlBlkSiz*drNmAlBlks > len(from_volume)):
+                or not drNmAlBlks or drAlBlSt < 3):
             raise ValueError('Invalid HFS allocation geometry')
+
+        # Some distributed images omit unused trailing allocation blocks.
+        # Check the bytes needed by each fork below, rather than requiring
+        # the entire advertised allocation area to be present.
 
         self.crdate, self.mddate, self.bkdate = drCrDate, drLsMod, drVolBkUp
 
@@ -233,8 +236,19 @@ class Volume(AbstractFolder):
                                        extrec1, cnid, extoflow, fork)
             if any(first + count > drNmAlBlks for first, count in extents):
                 raise ValueError('Extent outside allocation area')
-            return b''.join(from_volume[block2offset(first):block2offset(first+count)]
-                            for first, count in extents)[:size]
+            parts = []
+            remaining = size
+            for first, count in extents:
+                if not remaining:
+                    break
+                needed = min(remaining, count * drAlBlkSiz)
+                start = block2offset(first)
+                part = from_volume[start:start+needed]
+                if len(part) != needed:
+                    raise ValueError('Truncated HFS fork')
+                parts.append(part)
+                remaining -= needed
+            return b''.join(parts)
 
         extoflow = {}
         for rec in btree.dump_btree(getfork(drXTFlSize, drXTExtRec, 3, 'data')):
